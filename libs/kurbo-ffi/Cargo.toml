@@ -1,0 +1,28 @@
+[package]
+name = "kurbo-ffi"
+version = "0.1.0"
+rust-version = "1.66.0"
+edition = "2021"
+authors = ["Daan de Lange"]
+description = "C++ Wrapper for kurbo"
+license = "MIT"
+keywords = ["kurbo", "curve", "geometry", "2d", "graphics"]
+categories = ["graphics", "mathematics"]
+homepage = "https://github.com/linebender/kurbo"
+repository = "https://github.com/linebender/kurbo"
+
+[dependencies]
+kurbo = "0.13.1"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib"]
+
+[profile.release]
+opt-level = 3
+lto = true
+debug = 0
+strip = true
+codegen-units = 1
+panic = "abort"
+
