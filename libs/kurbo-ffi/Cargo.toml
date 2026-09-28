@@ -1,18 +1,20 @@
 [package]
 name = "kurbo-ffi"
-version = "0.1.0"
-rust-version = "1.66.0"
-edition = "2021"
+version = "0.2.0"
+rust-version = "1.88.0"
+edition = "2024"
 authors = ["Daan de Lange"]
 description = "C++ Wrapper for kurbo"
 license = "MIT"
-keywords = ["kurbo", "curve", "geometry", "2d", "graphics"]
+keywords = ["kurbo", "curve", "geometry", "2d", "graphics", "bezier"]
 categories = ["graphics", "mathematics"]
-homepage = "https://github.com/linebender/kurbo"
-repository = "https://github.com/linebender/kurbo"
+homepage = "https://github.com/daandelange/ofxKurbo"
+repository = "https://github.com/daandelange/ofxKurbo"
 
 [dependencies]
 kurbo = "0.13.1"
+vector-types = { git = "https://github.com/GraphiteEditor/Graphite.git", package = "vector-types", default-features = false, features = ["serde"] }
+linesweeper = "0.4.0"
 
 [lib]
 path = "src/lib.rs"
@@ -24,5 +26,4 @@ lto = true
 debug = 0
 strip = true
 codegen-units = 1
-panic = "abort"
-
+panic = "unwind"

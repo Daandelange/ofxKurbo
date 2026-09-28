@@ -17,6 +17,7 @@ inline double getModuloTime(double _interval = 1.){
 inline float getSineTime(float _interval = 1.f){
     return std::sin(ofGetElapsedTimef()*TWO_PI/_interval);
 }
+
 // Gui helpers
 std::string getBezrsJoinString(kurboJoinType join){
     std::string joinString("");
@@ -25,10 +26,35 @@ std::string getBezrsJoinString(kurboJoinType join){
     return joinString;
 }
 
+void drawCross(const kurboPos pos, const int crossSize = 6){
+    ofNoFill();
+    ofSetColor(ofColor::green);
+    ofSetLineWidth(2);
+    ofDrawLine(pos.x - crossSize, pos.y, pos.x+crossSize, pos.y);
+    ofDrawLine(pos.x, pos.y-crossSize, pos.x, pos.y+crossSize);
+    ofSetLineWidth(1);
+}
+
 inline glm::vec2 getTextPosStart(){
     return {50, ofGetHeight() - 50};
 }
 constexpr int lineHeight = 30;
+
+// Interaction helper
+#include <functional>
+#include <unordered_set>
+void onKeyPressed(int key, const std::function<void()>& callback){
+    static std::unordered_set<int> pressedKeys;
+    const bool wasPressed = pressedKeys.find(key)!=pressedKeys.end();
+    const bool isPressed = ofGetKeyPressed(key);
+    if (isPressed && !wasPressed){
+        callback();
+        pressedKeys.insert(key);
+    }
+    else if (!isPressed){
+        pressedKeys.erase(key);
+    }
+}
 
 //--------------------------------------------------------------
 void kurboToy::drawParams(const kurboShape& _sh){
@@ -42,36 +68,55 @@ const char* kurboToy::name_cstr(){
 //--------------------------------------------------------------
 // Copies shape to raw handle then sends it to bezRS (Rust)
 // Returned handle needs to be freed later !
-inline KurboBezPath* sendShapeToKurbo(const kurboShape& _inShape) {
+inline KurboBezPathInternal* sendShapeToKurbo(const kurboShape& _inShape) {
     KurboPathRaw rawInput = { _inShape.elements.data(), _inShape.elements.size() };
     return kurbo_path_create(&rawInput);
 }
 
 // Retrieves bezrs shape data to oF (c++)
-// Destroys handle too
-inline void populateShapeFromKurbo(KurboBezPath* kPath, kurboShape& _outShape, bool destroyPath=true) {
-    KurboPathRaw rawData = kurbo_path_return_handle_data(kPath);
-    _outShape.elements.clear();
-    for (size_t i = 0; i < rawData.len; i++) {
-        _outShape.elements.push_back(rawData.data[i]);
-    }
-    if (destroyPath) kurbo_path_destroy(kPath);
+// Optionally destroys the handle too
+inline void populateShapeFromKurbo(KurboBezPathInternal* kPath, kurboShape& _outShape, bool destroyPath=true) {
+   KurboPathRaw rawData = kurbo_path_get_elements(kPath, nullptr);
+   _outShape.elements.clear();
+   for (size_t i = 0; i < rawData.len; i++) {
+       _outShape.elements.push_back(rawData.data[i]);
+   }
+   kurbo_elements_free(rawData);
+   if (destroyPath) kurbo_path_destroy(kPath);
 }
-
 
 //--------------------------------------------------------------
 void offsetToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
     updateParams();
 
     // Create internal handle
-    KurboBezPath* path = sendShapeToKurbo(_inShape);
+    KurboBezPathInternal* path = sendShapeToKurbo(_inShape);
 
     // Apply transform
-    KurboBezPath* offsetPath = kurbo_path_offset(path, offset, 0.1);
+    KurboOffsetOptions opts = kurbo_offset_options_default();
+    opts.join = join;
+    opts.miter_limit = 999;//offset * 2; // tmp ! Mitter & outset doesn't work ! :o
+    KurboBezPathInternal* offsetPath = kurbo_path_offset(path, offset, &opts, nullptr);
 
     // Retrieve result
     populateShapeFromKurbo(offsetPath, _outShape, true);
     kurbo_path_destroy(path);
+    //kurbo_path_destroy(offsetPath); // already deleted by populateShapeFromKurbo
+}
+
+inline void cycle_join(kurboJoinType& join){
+    switch (join) {
+        case kurboJoinType::Bevel :
+            join = kurboJoinType::Miter;
+            break;
+        case kurboJoinType::Miter :
+            join = kurboJoinType::Round;
+            break;
+        case kurboJoinType::Round :
+        default:
+            join = kurboJoinType::Bevel;
+            break;
+    }
 }
 
 void offsetToy::updateParams() {
@@ -82,19 +127,10 @@ void offsetToy::updateParams() {
     unsigned int now = ofGetElapsedTimef()/cycle;
     if( now != lastTime){
         lastTime = now;
-        switch (join) {
-            case kurboJoinType::Bevel :
-                join = kurboJoinType::Miter;
-                break;
-            case kurboJoinType::Miter :
-                join = kurboJoinType::Round;
-                break;
-            case kurboJoinType::Round :
-            default:
-                join = kurboJoinType::Bevel;
-                break;
-        }
+        cycle_join(join);
     }
+    
+    onKeyPressed('j', [this](){ cycle_join(join); });
 }
 
 void offsetToy::drawParams(const kurboShape& _sh) {
@@ -103,9 +139,9 @@ void offsetToy::drawParams(const kurboShape& _sh) {
     textPos.y -= lineHeight;
     ofDrawBitmapStringHighlight("Beware the winding order : CCW reverses the direction and creates some artifacts.", textPos.x, textPos.y);
     textPos.y -= lineHeight;
-    ofDrawBitmapStringHighlight(ofToString("Offset = ")+ofToString(offset), textPos.x, textPos.y, ofColor(ofColor::red, HUD_BG_ALPHA));
+    ofDrawBitmapStringHighlight(ofToString("Offset   = ")+ofToString(offset), textPos.x, textPos.y, ofColor(ofColor::red, HUD_BG_ALPHA));
     textPos.y -= lineHeight;
-    ofDrawBitmapStringHighlight(ofToString("Join   = ")+getBezrsJoinString(join), textPos.x, textPos.y);
+    ofDrawBitmapStringHighlight(ofToString("Join [j] = ")+getBezrsJoinString(join), textPos.x, textPos.y);
 }
 
 //--------------------------------------------------------------
@@ -113,13 +149,17 @@ void outlineToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
     updateParams();
 
     // Create internal handle
-    KurboBezPath* path = sendShapeToKurbo(_inShape);
+    KurboBezPathInternal* path = sendShapeToKurbo(_inShape);
 
     // Transform the shape
-    KurboBezPath* stroked = kurbo_path_stroke(path, offset, join, 0, kurboCapType::Round, kurboCapType::Round);
+    // KurboBezPathInternal* stroked = kurbo_path_stroke(path, offset, join, 0, kurboCapType::Round, kurboCapType::Round, nullptr);
+    KurboOffsetOptions opts = kurbo_offset_options_default();
+    opts.join = join; // whatever kurboJoinType the toy's UI already selected
+    KurboBezPathInternal* stroked = kurbo_path_stroke(path, offset, kurboCapType::Round, kurboCapType::Round, &opts, nullptr);
     if (stroked != nullptr) {
         // Retrieve and destroy internal handle
         populateShapeFromKurbo(stroked, _outShape, true);
+        //kurbo_path_destroy(stroked); // already deleted by populateShapeFromKurbo
     }
 
     kurbo_path_destroy(path);
@@ -143,9 +183,10 @@ void rotationToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
     center.y = ofGetHeight()*.5;
     rotation = getModuloTime(10.f)*TWO_PI;
 
-    KurboBezPath* path = sendShapeToKurbo(_inShape);
-    kurbo_path_rotate(path, rotation, center);
+    KurboBezPathInternal* path = sendShapeToKurbo(_inShape);
+    kurbo_path_rotate(path, rotation, center, nullptr);
     populateShapeFromKurbo(path, _outShape, true);
+    //kurbo_path_destroy(path); // already deleted by populateShapeFromKurbo
 }
 
 void rotationToy::drawParams(const kurboShape& _sh) {
@@ -158,27 +199,22 @@ void rotationToy::drawParams(const kurboShape& _sh) {
     ofDrawBitmapStringHighlight(ofToString("Center   = ")+ofToString(center), textPos.x, textPos.y, ofColor(ofColor::green, HUD_BG_ALPHA));
 
     // Visualise center
-    ofNoFill();
-    ofSetColor(ofColor::green);
-    const static int crossSize = 6;
-    ofSetLineWidth(2);
-    ofDrawLine(center.x - crossSize, center.y, center.x+crossSize, center.y);
-    ofDrawLine(center.x, center.y-crossSize, center.x, center.y+crossSize);
-    ofSetLineWidth(1);
+    drawCross(center);
 }
 
 //--------------------------------------------------------------
 void reverseWindingToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
     reversed = getSineTime(10.f) >= 0.f;
 
-    if(ofGetKeyPressed('r')){
+    onKeyPressed('r', [this](){
         reversed = !reversed;
-    }
+    });
 
     if(reversed){
-        KurboBezPath* path = sendShapeToKurbo(_inShape);
-        kurbo_path_reverse(path);
+        KurboBezPathInternal* path = sendShapeToKurbo(_inShape);
+        kurbo_path_reverse(path, nullptr);
         populateShapeFromKurbo(path, _outShape, true);
+        //kurbo_path_destroy(path); // already deleted by populateShapeFromKurbo
     }
 }
 
@@ -193,10 +229,10 @@ void reverseWindingToy::drawParams(const kurboShape& _sh) {
 //--------------------------------------------------------------
 void boundingBoxToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
     // Create internal handle
-    KurboBezPath* path = sendShapeToKurbo(_inShape);
+    KurboBezPathInternal* path = sendShapeToKurbo(_inShape);
 
     // Retrieve boundingbox
-    bb = kurbo_path_boundingbox(path);
+    bb = kurbo_path_boundingbox(path, nullptr);
 
     // Destroy handle
     kurbo_path_destroy(path);
@@ -221,7 +257,7 @@ void boundingBoxToy::drawParams(const kurboShape& _sh) {
 //--------------------------------------------------------------
 void hitTestToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
     // Create internal handle
-    KurboBezPath* path = sendShapeToKurbo(_inShape);
+    KurboBezPathInternal* path = sendShapeToKurbo(_inShape);
     
     // Update params
     mousePos = glm::vec2(ofGetMouseX(), ofGetMouseY());
@@ -257,11 +293,11 @@ void hitTestToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
 
     // Query kurbo
     // Do hit tests
-    mousePosHit = kurbo_path_contains_point(path, to_kurboPos(mousePos));
-    simPosHit = kurbo_path_contains_point(path, to_kurboPos(simPos));
+    mousePosHit = kurbo_path_contains_point(path, to_kurboPos(mousePos), nullptr);
+    simPosHit = kurbo_path_contains_point(path, to_kurboPos(simPos), nullptr);
     // Project points
-    mouseProjection = to_glmVec2(kurbo_path_project(path, to_kurboPos(mousePos), 0.1));
-    simProjection = to_glmVec2(kurbo_path_project(path, to_kurboPos(simPos), 0.1));
+    mouseProjection = to_glmVec2(kurbo_path_project(path, to_kurboPos(mousePos), 0.1, nullptr));
+    simProjection = to_glmVec2(kurbo_path_project(path, to_kurboPos(simPos), 0.1, nullptr));
 
     // Cleanup
     kurbo_path_destroy(path);
@@ -292,21 +328,24 @@ void hitTestToy::drawParams(const kurboShape& _sh) {
 
 //--------------------------------------------------------------
 void inflectionsToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
-    KurboBezPath* path = sendShapeToKurbo(_inShape);
+    KurboBezPathInternal* path = sendShapeToKurbo(_inShape);
     
-    kurboFloatsRaw infs = kurbo_path_inflections(path);
+    kurboFloatsRaw infs = kurbo_path_inflections(path, nullptr);
     inflections.clear();
     for (size_t i = 0; i < infs.len; i++) {
-        kurboEvalResult res = kurbo_path_evaluate(path, infs.data[i]);
+        kurboEvalResult res = kurbo_path_evaluate(path, infs.data[i], nullptr);
         inflections.push_back(to_glmVec2(res.pos));
     }
+    // infs is rust allocated — must be released explicitly !
+    kurbo_floats_free(infs);
 
-    kurboFloatsRaw exts = kurbo_path_extrema(path);
+    kurboFloatsRaw exts = kurbo_path_extrema(path, nullptr);
     local_extremas.clear();
     for (size_t i = 0; i < exts.len; i++) {
-        kurboEvalResult res = kurbo_path_evaluate(path, exts.data[i]);
+        kurboEvalResult res = kurbo_path_evaluate(path, exts.data[i], nullptr);
         local_extremas.push_back(to_glmVec2(res.pos));
     }
+    kurbo_floats_free(exts);
 
     kurbo_path_destroy(path);
 }
@@ -349,25 +388,20 @@ void evaluateToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
     prevTval = tval;
 
     // Custom control
-    static bool bWasPressed = false;
-    if(ofGetKeyPressed('e')){
-        // ignores repeats
-        if(!bWasPressed) bEuclidean = !bEuclidean;
-        bWasPressed= true;
-    }
-    else {
-        bWasPressed = false;
-    }
+    onKeyPressed('e', [this](){
+        bEuclidean = !bEuclidean;
+    });
+    
     // Tmp change tvalue with mouse
     if(ofGetMousePressed()){
         tval = ((float)ofGetMouseX())/ofGetWidth();
     }
 
-    KurboBezPath* path = sendShapeToKurbo(_inShape);
+    KurboBezPathInternal* path = sendShapeToKurbo(_inShape);
     if (bEuclidean) {
-        evalRes = kurbo_path_evaluate_euclidean(path, tval, 0.1);
+        evalRes = kurbo_path_evaluate_euclidean(path, tval, 0.1, nullptr);
     } else {
-        evalRes = kurbo_path_evaluate(path, tval);
+        evalRes = kurbo_path_evaluate(path, tval, nullptr);
     }
     kurbo_path_destroy(path);
 }
@@ -434,22 +468,22 @@ void selfIntersectToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape
     offset = getSineTime(cycle)*80.f; // to animate
 
     // Get handles
-    KurboBezPath* path = sendShapeToKurbo(_inShape);
-    KurboBezPath* offsetPath = kurbo_path_offset(path, offset, 0.1);
+    KurboBezPathInternal* path = sendShapeToKurbo(_inShape);
+    KurboBezPathInternal* offsetPath = kurbo_path_offset(path, offset, nullptr, nullptr);
     
     // Compute
-    kurboFloatsRaw ints = kurbo_path_self_intersections(offsetPath, 3.5, 1.);
+    kurboFloatsRaw ints = kurbo_path_self_intersections(offsetPath, 3.5, 1., nullptr);
     selfIntersects.clear();
     floatsVec.clear();
     for (size_t i = 0; i < ints.len; i++) {
         floatsVec.push_back(ints.data[i]);
-        kurboEvalResult res = kurbo_path_evaluate(offsetPath, ints.data[i]);
-        // kurboEvalResult res = kurbo_path_evaluate_euclidean(offsetPath, ints.data[i], 0.1);
+        kurboEvalResult res = kurbo_path_evaluate(offsetPath, ints.data[i], nullptr);
         selfIntersects.push_back(to_glmVec2(res.pos));
     }
+    kurbo_floats_free(ints);
     
     // Grab data & cleanup handles
-    populateShapeFromKurbo(offsetPath, _outShape);
+    populateShapeFromKurbo(offsetPath, _outShape, true);
     kurbo_path_destroy(path);
 }
 
@@ -480,4 +514,84 @@ void selfIntersectToy::drawParams(const kurboShape& _sh) {
         }
         ofDrawRectangle(0,size.y,size.x*0.01*floatsVec.size(),size.y*.2);
     }
+}
+
+//--------------------------------------------------------------
+inline KurboBooleanOp nextBooleanOp(KurboBooleanOp op){
+    return static_cast<KurboBooleanOp>( (static_cast<int>(op)+1) % 4 );
+}
+
+void booleanToy::updateParams() {
+    static const float cycle = 10.f;
+    if(bRotate){
+        rotation = getModuloTime(cycle)*TWO_PI;
+    }
+    onKeyPressed('r', [this](){ bRotate = !bRotate; });
+
+    // Move boolean op every cycle
+    static unsigned int lastTime = 0;
+    unsigned int now = ofGetElapsedTimef()/cycle;
+    if( now != lastTime){
+        lastTime = now;
+        booleanOp = nextBooleanOp(booleanOp);
+    }
+    // Or with mouse
+    onKeyPressed('b', [this](){ booleanOp = nextBooleanOp(booleanOp); });
+    
+}
+
+void booleanToy::applyFX(const kurboShape& _inShape, kurboShape& _outShape) {
+    updateParams();
+
+    // Create internal handle
+    KurboBezPathInternal* pathA = sendShapeToKurbo(_inShape);
+
+    // Compute bounding box & its center
+    bb = kurbo_path_boundingbox(pathA, nullptr);
+    bbCenter = { (bb.x0 + bb.x1)*0.5, (bb.y0 + bb.y1)*0.5 };
+
+    // Duplicate & rotate the shape around the bounding box center
+    KurboBezPathInternal* pathB = kurbo_path_rotated(pathA, rotation, bbCenter, nullptr);
+
+    // Keep a copy of the rotated shape for visualisation
+    populateShapeFromKurbo(pathB, rotatedShape, false);
+
+    // Boolean operation between original & rotated duplicate
+    KurboBezPathInternal* result = kurbo_path_boolean(pathA, pathB, booleanOp, 0.1, nullptr);
+
+    // Retrieve result
+    if (result != nullptr) {
+        populateShapeFromKurbo(result, _outShape, true);
+    }
+
+    // Cleanup handles
+    kurbo_path_destroy(pathB);
+    kurbo_path_destroy(pathA);
+}
+
+void booleanToy::drawParams(const kurboShape& _sh) {
+    // Gui
+    glm::vec2 textPos = {50, ofGetHeight() - 50};
+    ofDrawBitmapStringHighlight("Boolean operation between the shape and a rotated copy of itself.", textPos.x, textPos.y);
+    textPos.y -= 30;
+    ofDrawBitmapStringHighlight(ofToString("Operation [b] = ")+getBooleanOpString(booleanOp), textPos.x, textPos.y, ofColor(ofColor::red, HUD_BG_ALPHA)
+    );
+    textPos.y -= 30;
+    ofDrawBitmapStringHighlight(ofToString("Rotation  [r] = ")+ofToString(rotation/TWO_PI), textPos.x, textPos.y
+    );
+    textPos.y -= 30;
+    ofDrawBitmapStringHighlight(ofToString("Center        = ") + ofToString(glm::vec2((bb.x0+bb.x1)*.5, (bb.y0+bb.y1)*.5)), textPos.x, textPos.y, ofColor(ofColor::green, HUD_BG_ALPHA)
+    );
+    textPos.y -= 30;
+
+    // Visualise the rotated duplicate (ghost) underneath the result
+    ofSetLineWidth(1);
+    rotatedShape.draw(false, ofColor(ofColor::violet, 128));
+    
+    // Re-draw transformed shape above
+    _sh.draw(true, ofColor(ofColor::red, 80));
+    _sh.draw(false, ofColor::red);
+
+    // Visualise center
+    drawCross(bbCenter);
 }

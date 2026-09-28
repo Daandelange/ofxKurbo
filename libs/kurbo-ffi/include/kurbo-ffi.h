@@ -14,6 +14,8 @@
 #include <ostream>
 #include <new>
 
+
+
 enum class KurboPathElType {
   MoveTo,
   LineTo,
@@ -22,10 +24,16 @@ enum class KurboPathElType {
   ClosePath,
 };
 
-enum class kurboJoinType {
-  Miter,
-  Round,
-  Bevel,
+/// - - - -
+/// Error / panic-safety boundary stuff
+enum class KurboStatus {
+  Ok = 0,
+  /// A required pointer argument was null.
+  NullPointer = 1,
+  /// An argument was structurally invalid (e.g. a negative length).
+  InvalidArgument = 2,
+  /// The Rust side RustPanick; the operation did not complete.
+  RustPanick = 3,
 };
 
 enum class kurboCapType {
@@ -34,13 +42,33 @@ enum class kurboCapType {
   Square,
 };
 
-struct KurboBezPath;
+/// - - - -
+/// Shared data structs
+/// Some common minimal data types to be shared between c++ and Rust, used to pass and retrieve data in-bewteen both.
+/// - - - -
+enum class kurboJoinType {
+  Miter,
+  Round,
+  Bevel,
+};
+
+/// Boolean operation selector for kurbo_path_boolean.
+enum class KurboBooleanOp {
+  Union = 0,
+  Intersection = 1,
+  Difference = 2,
+  Xor = 3,
+};
+
+/// Internal bezier data handle (Rust-owned)
+struct KurboBezPathInternal;
 
 struct kurboPos {
   double x;
   double y;
 };
 
+/// Minimal custom SVG-like-path-command representation
 struct KurboPathEl {
   KurboPathElType tag;
   kurboPos p0;
@@ -50,11 +78,31 @@ struct KurboPathEl {
 
 using SizeTC = unsigned long;
 
+/// Minimal custom SVG-like-path representation shared between C++ and Rust
 struct KurboPathRaw {
   const KurboPathEl *data;
   SizeTC len;
 };
 
+/// Options used for offsetting & stroking paths
+struct KurboOffsetOptions {
+  /// Join used both by the stroke & offset construction
+  kurboJoinType join;
+  /// Only used when `join` is Miter.
+  double miter_limit;
+  /// Flattening tolerance for the stroke (only used for inset cleaning)
+  double stroke_tolerance;
+  /// Epsilon passed to linesweeper's binary_op_with_eps (only used for inset cleaning)
+  double boolean_epsilon;
+  /// Coordinate-quantization grid size applied to detect near-coincident points (only used for outset cleaning)
+  double quantize_epsilon;
+  /// Epsilon passed to linesweeper's Topology cleanup pass (only used for outset cleaning)
+  double topology_epsilon;
+  /// Do a cleanup stage (set to false for rendering-only = faster)
+  bool cleanup_stage;
+};
+
+/// Rectangle with min & max corners.
 struct kurboRect {
   double x0;
   double y0;
@@ -62,6 +110,7 @@ struct kurboRect {
   double y1;
 };
 
+/// Data structure for retrieving data and handling possible errors.
 struct kurboEvalResult {
   kurboPos pos;
   kurboPos tangent;
@@ -69,6 +118,7 @@ struct kurboEvalResult {
   double curvature;
 };
 
+/// Data structure for retrieving floats
 struct kurboFloatsRaw {
   const double *data;
   SizeTC len;
@@ -76,51 +126,140 @@ struct kurboFloatsRaw {
 
 extern "C" {
 
-KurboBezPath *kurbo_path_create(const KurboPathRaw *elements_opt);
+/// Returns a pointer to the last error message set on the calling thread,
+/// Returns null when no errors happened in the last command.
+const char *kurbo_last_error_message();
 
-void kurbo_path_destroy(KurboBezPath *path);
+/// Creates a rust-owned internal handle from a KurboPathRaw (or an empty one if none passed)
+KurboBezPathInternal *kurbo_path_create(const KurboPathRaw *elements_opt);
 
-KurboPathRaw kurbo_path_return_handle_data(KurboBezPath *path);
+/// Helper for creating an internal handle from C++ arrays/vectors instead of a `KurboPathRaw`. (Used by `ofxKurboPath`)
+/// Bulk-uploads `len` contiguous `KurboPathEl` values in one call and returns a freshly-owned handle.
+KurboBezPathInternal *kurbo_path_create_from_elements(const KurboPathEl *data,
+                                                      SizeTC len,
+                                                      KurboStatus *out_status);
 
-void kurbo_path_append_move_to(KurboBezPath *path, kurboPos p);
+/// Deep-clones a path, producing an entirely independent handle with its own Rust-owned BezPath.
+KurboBezPathInternal *kurbo_path_clone(const KurboBezPathInternal *path, KurboStatus *out_status);
 
-void kurbo_path_append_line_to(KurboBezPath *path, kurboPos p);
+/// Destroys a handle created by any kurbo_path_* constructor.
+void kurbo_path_destroy(KurboBezPathInternal *path);
 
-void kurbo_path_append_quad_to(KurboBezPath *path, kurboPos p1, kurboPos p2);
+/// Bulk-reads every element of `path` into a Rust-owned buffer.
+/// The caller MUST pass the returned KurboPathRaw to `kurbo_elements_free` once done.
+KurboPathRaw kurbo_path_get_elements(const KurboBezPathInternal *path, KurboStatus *out_status);
 
-void kurbo_path_append_curve_to(KurboBezPath *path, kurboPos p1, kurboPos p2, kurboPos p3);
+/// Frees a buffer previously returned by kurbo_path_get_elements.
+void kurbo_elements_free(KurboPathRaw raw);
 
-void kurbo_path_append_close(KurboBezPath *path);
+SizeTC kurbo_path_get_elements_size(const KurboBezPathInternal *path);
 
-KurboBezPath *kurbo_path_stroke(KurboBezPath *path,
-                                double width,
-                                kurboJoinType join,
-                                double miter_limit,
-                                kurboCapType start_cap,
-                                kurboCapType end_cap);
+/// Writes the elements of `path` into a caller-owned buffer, writing at most `out_capacity` elements.
+/// Returns the success state. No need to call `kurbo_elements_free`.
+///   SizeTC needed = kurbo_path_get_elements_size(path);
+///   std::vector<KurboPathEl> buf(needed);
+///   kurbo_path_write_elements(path, buf.data(), buf.size(), &status);
+bool kurbo_path_write_elements(const KurboBezPathInternal *path,
+                               KurboPathEl *out_data,
+                               SizeTC out_capacity,
+                               KurboStatus *out_status);
 
-void kurbo_path_reverse(KurboBezPath *path);
+/// Legacy accessor kept for existing callers: returns a pointer into the
+/// handle's OWN internal buffer (rebuilt on every call). Do not mix with
+/// kurbo_elements_free — this buffer is owned and freed by the handle
+/// itself on the next call or on kurbo_path_destroy, never by the
+/// caller. Prefer kurbo_path_get_elements + kurbo_elements_free for new
+/// code: it hands you an independent allocation with an unambiguous
+/// ownership story instead of one tied to the handle's mutable state.
+/// Returns a stroked-outline
+/// Non-mutating: `path` is left untouched.
+KurboBezPathInternal *kurbo_path_stroke(const KurboBezPathInternal *path,
+                                        double width,
+                                        kurboCapType start_cap,
+                                        kurboCapType end_cap,
+                                        const KurboOffsetOptions *options,
+                                        KurboStatus *out_status);
 
-kurboRect kurbo_path_boundingbox(KurboBezPath *path);
+/// Reverses the winding of the path
+void kurbo_path_reverse(KurboBezPathInternal *path, KurboStatus *out_status);
 
-bool kurbo_path_contains_point(KurboBezPath *path, kurboPos pos);
+/// Returns a new handle rotated by `angle` radians around `center`.
+/// Non-mutating: `path` is left untouched.
+KurboBezPathInternal *kurbo_path_rotated(const KurboBezPathInternal *path,
+                                         double angle,
+                                         kurboPos center,
+                                         KurboStatus *out_status);
 
-kurboEvalResult kurbo_path_evaluate(KurboBezPath *path, double t);
+/// Returns the rectangle that contains the path
+kurboRect kurbo_path_boundingbox(const KurboBezPathInternal *path, KurboStatus *out_status);
 
-kurboEvalResult kurbo_path_evaluate_euclidean(KurboBezPath *path, double t, double accuracy);
+/// Hit testing
+/// - On open paths : evaluates if the target is on the path
+/// - On closed shapes : evaluates if the target is within the shape.
+bool kurbo_path_contains_point(const KurboBezPathInternal *path,
+                               kurboPos pos,
+                               KurboStatus *out_status);
 
-kurboFloatsRaw kurbo_path_inflections(KurboBezPath *path);
+/// Linear path evaluation
+/// For converting t-values to positions
+kurboEvalResult kurbo_path_evaluate(const KurboBezPathInternal *path,
+                                    double t,
+                                    KurboStatus *out_status);
 
-kurboFloatsRaw kurbo_path_extrema(KurboBezPath *path);
+/// Euclidean evaluation
+/// Takes into account the path length
+kurboEvalResult kurbo_path_evaluate_euclidean(const KurboBezPathInternal *path,
+                                              double t,
+                                              double accuracy,
+                                              KurboStatus *out_status);
 
-KurboBezPath *kurbo_path_offset(KurboBezPath *path, double distance, double tolerance);
+/// Frees a kurboFloatsRaw buffer
+void kurbo_floats_free(kurboFloatsRaw raw);
 
-void kurbo_path_rotate(KurboBezPath *path, double angle, kurboPos center);
+/// Find path inflection points
+kurboFloatsRaw kurbo_path_inflections(const KurboBezPathInternal *path, KurboStatus *out_status);
 
-kurboPos kurbo_path_project(KurboBezPath *path, kurboPos pos, double accuracy);
+/// Find path extremas
+kurboFloatsRaw kurbo_path_extrema(const KurboBezPathInternal *path, KurboStatus *out_status);
 
-kurboFloatsRaw kurbo_path_self_intersections(KurboBezPath *path,
+/// Returns the default options for stroking and offsetting
+KurboOffsetOptions kurbo_offset_options_default();
+
+/// Offset a given path and cleanup the result
+/// Note: A single path can return zero, one or more contours.
+KurboBezPathInternal *kurbo_path_offset(const KurboBezPathInternal *path,
+                                        double distance,
+                                        const KurboOffsetOptions *options,
+                                        KurboStatus *out_status);
+
+/// Rotates a path (in degrees) around a center point
+void kurbo_path_rotate(KurboBezPathInternal *path,
+                       double angle,
+                       kurboPos center,
+                       KurboStatus *out_status);
+
+/// Projects a point on a path
+/// Returns the closest point on shape.
+kurboPos kurbo_path_project(const KurboBezPathInternal *path,
+                            kurboPos pos,
+                            double accuracy,
+                            KurboStatus *out_status);
+
+/// Finds path self intersections, returned as linear t-values
+/// /!\ Experimental AI implementation !
+kurboFloatsRaw kurbo_path_self_intersections(const KurboBezPathInternal *path,
                                              double error_threshold,
-                                             double _min_dist_param);
+                                             double _min_dist_param,
+                                             KurboStatus *out_status);
+
+/// Non-mutating: `a` and `b` are read-only and stay valid and reusable.
+/// Returns a new handle holding every result contour as a subpath.
+KurboBezPathInternal *kurbo_path_boolean(const KurboBezPathInternal *a,
+                                         const KurboBezPathInternal *b,
+                                         KurboBooleanOp op,
+                                         double epsilon,
+                                         KurboStatus *out_status);
 
 }  // extern "C"
+
+/* Have fun ! :) */

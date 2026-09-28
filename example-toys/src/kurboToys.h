@@ -114,3 +114,18 @@ protected:
     std::vector<double> floatsVec;
     void updateParams();
 };
+
+class booleanToy : public kurboToy {
+public:
+    booleanToy() : kurboToy("Boolean Ops") {};
+    void applyFX(const kurboShape& _inShape, kurboShape& _outShape) override;
+    void drawParams(const kurboShape& _sh) override;
+protected:
+    void updateParams();
+    KurboBooleanOp booleanOp = KurboBooleanOp::Xor;
+    float rotation = 0.f;
+    bool bRotate = true;
+    kurboRect bb;
+    kurboPos bbCenter;
+    kurboShape rotatedShape;
+};

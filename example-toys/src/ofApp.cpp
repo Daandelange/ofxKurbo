@@ -19,6 +19,7 @@ void ofApp::setup() {
     toys.push_back(new inflectionsToy());
     toys.push_back(new evaluateToy());
     toys.push_back(new selfIntersectToy());
+    toys.push_back(new booleanToy());
 
     generateNewShape();
 }
@@ -70,72 +71,40 @@ void ofApp::draw() {
         infoTextPos.y+=50;
         ofDrawBitmapStringHighlight("Transformed Shape:", infoTextPos.x, infoTextPos.y, ofColor(0,0,0,100), ofColor(255,255,255));
         infoTextPos.y+=30;
-        ofDrawBitmapStringHighlight(ofToString("Segments: ")+ofToString(fxShape.elements.size()), infoTextPos.x, infoTextPos.y, ofColor(0,0,0,100), ofColor(255,255,255));
+        ofDrawBitmapStringHighlight(ofToString("Segments: ") + ofToString(fxShape.elements.size()), infoTextPos.x, infoTextPos.y, ofColor(0,0,0,100), ofColor(255,255,255));
     }
 
     // Draw original
-    shape.draw();
-
-    // Draw FX shape
-    //fxShape.draw(true, ofColor(255, 100, 100), ofColor(255, 200, 200));
-
-    // // Shape editing (from ofxBezierRs)
-    // // Preview bezier creation
-    // if(clickedPos.x!=0 && clickedPos.y!=0){
-    //     glm::vec2 offset;
-    //     offset = {clickedPos.x-bezierPreview.x, clickedPos.y-bezierPreview.y};
-
-    //     bezrsBezierHandle newBezier;
-    //     newBezier.pos.x=clickedPos.x;
-    //     newBezier.pos.y=clickedPos.y;
-    //     newBezier.in_bez.x=clickedPos.x+offset.x;
-    //     newBezier.in_bez.y=clickedPos.y+offset.y;
-    //     newBezier.out_bez.x=clickedPos.x+offset.x*-1.f;
-    //     newBezier.out_bez.y=clickedPos.y+offset.y*-1.f;
-
-    //     // Draw shape preview
-    //     ofNoFill();
-    //     if(shape.beziers.size()>0){
-    //         ofSetColor(ofColor::black);
-    //         bezrsBezierHandle* bhPrev = &*shape.beziers.rbegin();
-    //         bezrsBezierHandle* bhFirst = &*shape.beziers.begin();
-
-    //         ofDrawBezier(bhPrev->pos.x, bhPrev->pos.y, bhPrev->out_bez.x, bhPrev->out_bez.y, newBezier.in_bez.x, newBezier.in_bez.y, newBezier.pos.x, newBezier.pos.y);
-    //         ofDrawBezier(newBezier.pos.x, newBezier.pos.y, newBezier.out_bez.x, newBezier.out_bez.y, bhFirst->in_bez.x, bhFirst->in_bez.y, bhFirst->pos.x, bhFirst->pos.y);
-    //     }
-
-    //     // Draw bezier handle preview
-    //     ofSetColor(ofColor::blue);
-    //     ofDrawLine(newBezier.pos.x, newBezier.pos.y, newBezier.out_bez.x, newBezier.out_bez.y);
-    //     ofDrawLine(newBezier.pos.x, newBezier.pos.y, newBezier.in_bez.x, newBezier.in_bez.y);
-    // }
+    shape.draw(false, ofColor::black);
+    shape.drawBezierHandles(ofColor::red, ofColor::black);
 
     // Draw transformed shape
     if(fxShape.elements.size()>1){
-        fxShape.draw(true, ofColor::red);
+        fxShape.draw(false, ofColor::red);
+        fxShape.drawBezierHandles(ofColor::blue, ofColor::red);
     }
 
-    // Show Toys
+    // Show Toys Menu
+    int textX = 50;
+    static const int fontSize = 8; // from ofDrawBitmapStringHighlight SRC
+    static const int padding = 10;
+    static const int toyOffset = fontSize * 7 + padding; // 7 = strlen(string_below)
+    ofDrawBitmapStringHighlight(ofToString("Toys : "), textX, textY, ofColor(ofColor::black, 100));
+    textX += toyOffset;
     kurboToy* toy = toys[currentToy];
-
-    if(toy){
-        int textX = 50;
-        static const int fontSize = 8; // from ofDrawBitmapStringHighlight SRC
-        static const int padding = 10;
-        static const int toyOffset = fontSize * 7 + padding; // 7 = strlen(string_below)
-        ofDrawBitmapStringHighlight(ofToString("Toys : "), textX, textY, ofColor(ofColor::black, 100));
-        textX += toyOffset;
-        for(auto* t : toys){
-            int textWidth = fontSize * ofToString(t->name_cstr()).length() + padding;
-            if(textX+textWidth > 600){ // Start new line ?
-                textX = 50 + toyOffset;
-                textY+= 20 + padding*.5;
-            }
-            ofDrawBitmapStringHighlight(t->name_cstr(), textX, textY, ofColor(ofColor::black, t==toy?255:100));
-            textX += textWidth;
+    for(auto* t : toys){
+        int textWidth = fontSize * ofToString(t->name_cstr()).length() + padding;
+        if(textX+textWidth > 600){ // Start new line ?
+            textX = 50 + toyOffset;
+            textY+= 20 + padding*.5;
         }
-        textY+=30;
-
+        ofDrawBitmapStringHighlight(t->name_cstr(), textX, textY, ofColor(ofColor::black, t==toy?255:100));
+        textX += textWidth;
+    }
+    textY+=30;
+    
+    // Show current toy
+    if(toy){
         // Draw toy params
         if(bShowInfo) toy->drawParams(fxShape);
     }

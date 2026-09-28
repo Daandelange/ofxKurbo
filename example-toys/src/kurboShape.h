@@ -9,5 +9,6 @@ struct kurboShape {
     bool bChanged = false;
     static bool bShowNumbers;
 
-    void draw(bool connectLast=true, ofColor lineColor=ofColor::black, ofColor bezierColor=ofColor::blue);
+    void draw(bool filled=false, ofColor lineColor=ofColor::black) const;
+    void drawBezierHandles(ofColor handlesColor=ofColor::blue, ofColor anchorColor=ofColor::black) const;
 };

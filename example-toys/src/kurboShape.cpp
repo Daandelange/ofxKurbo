@@ -3,11 +3,17 @@
 
 bool kurboShape::bShowNumbers = true;
 
-void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) {
+void kurboShape::draw(bool filled, ofColor lineColor) const {
+    // Set style
+    ofSetColor(lineColor);//, 255);
+    if(filled){
+        ofFill();
+    }
+    else {
+        ofNoFill();
+        ofSetLineWidth(2);
+    }
     // Draw the path
-    ofNoFill();
-    ofSetColor(lineColor, 255);
-    ofSetLineWidth(2);
     ofBeginShape();
     for (const KurboPathEl& el : this->elements) {
         if (el.tag == KurboPathElType::MoveTo){ ofEndShape(false); ofVertex(to_glmVec2(el.p0)); }
@@ -17,10 +23,16 @@ void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) 
         else if (el.tag == KurboPathElType::ClosePath) { ofEndShape(true); ofBeginShape(); }
     }
     ofEndShape(false);
+    
+    if(!filled){
+        ofSetLineWidth(1);
+    }
+}
 
+void kurboShape::drawBezierHandles(ofColor handlesColor, ofColor anchorColor) const {
     // Visualise vector data
     ofSetLineWidth(1);
-    ofSetColor(bezierColor, 255);
+    ofSetColor(handlesColor);
     // int i = 0;
     int vertexIndex = 0;
     glm::vec2 currentPt = {0, 0};
@@ -30,7 +42,7 @@ void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) 
         if (el.tag == KurboPathElType::MoveTo || el.tag == KurboPathElType::LineTo) {
             currentPt = to_glmVec2(el.p0);
             ofFill();
-            ofSetColor(lineColor);
+            ofSetColor(anchorColor);
             ofDrawCircle(currentPt.x, currentPt.y, 3);
 
             if(el.tag == KurboPathElType::MoveTo){
@@ -43,7 +55,7 @@ void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) 
 
             // Draw control point
             ofFill();
-            ofSetColor(bezierColor, 255);
+            ofSetColor(handlesColor);
             ofDrawCircle(cp1.x, cp1.y, 2);
 
             if(el.tag == KurboPathElType::CurveTo){
@@ -52,7 +64,7 @@ void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) 
 
                 // Draw handle lines (connecting out-handle to start anchor, and in-handle to end anchor)
                 ofNoFill();
-                ofSetColor(bezierColor, 255);
+                ofSetColor(handlesColor);
                 ofDrawLine(currentPt.x, currentPt.y, cp1.x, cp1.y);
                 ofDrawLine(endPt.x, endPt.y, cp2.x, cp2.y);
             }
@@ -60,14 +72,14 @@ void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) 
             else {
                 // Draw handle lines (connecting anchors to the control point)
                 ofNoFill();
-                ofSetColor(bezierColor, 255);
+                ofSetColor(handlesColor);
                 ofDrawLine(currentPt.x, currentPt.y, cp1.x, cp1.y);
                 ofDrawLine(cp1.x, cp1.y, endPt.x, endPt.y);
             }
             
             // Draw end anchor
             ofFill();
-            ofSetColor(lineColor);
+            ofSetColor(anchorColor);
             ofDrawCircle(endPt.x, endPt.y, 3);
             
             currentPt = endPt;
@@ -82,17 +94,17 @@ void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) 
         // Show numbers ?
         if (kurboShape::bShowNumbers && el.tag != KurboPathElType::ClosePath) {
             glm::vec2 offset = {5, 5};
-            ofDrawBitmapStringHighlight(ofToString(vertexIndex), currentPt.x + offset.x, currentPt.y + offset.y, ofColor(lineColor,80), ofColor(255,255,255,200));
+            ofDrawBitmapStringHighlight(ofToString(vertexIndex), currentPt.x + offset.x, currentPt.y + offset.y, ofColor(anchorColor,80), ofColor(255,255,255,200));
             vertexIndex++;
         }   
     }
-    if(false) for (const KurboPathEl& el : this->elements) {
+    if constexpr (false) for (const KurboPathEl& el : this->elements) {
         if (el.tag == KurboPathElType::MoveTo) {
             currentPt = to_glmVec2(el.p0);
             subpathStart = currentPt;
             
             // Draw anchor
-            ofFill(); ofSetColor(lineColor); ofDrawCircle(currentPt.x, currentPt.y, 3);
+            ofFill(); ofSetColor(anchorColor); ofDrawCircle(currentPt.x, currentPt.y, 3);
             
             // Draw number
             if (kurboShape::bShowNumbers) {
@@ -107,7 +119,7 @@ void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) 
             currentPt = to_glmVec2(el.p0);
             
             // Draw anchor
-            ofFill(); ofSetColor(lineColor); ofDrawCircle(currentPt.x, currentPt.y, 3);
+            ofFill(); ofSetColor(anchorColor); ofDrawCircle(currentPt.x, currentPt.y, 3);
             
             // Draw number
             if (kurboShape::bShowNumbers) {
@@ -121,17 +133,17 @@ void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) 
             glm::vec2 endPt = to_glmVec2(el.p1); // Anchor point
             
             // Draw control point
-            ofFill(); ofSetColor(bezierColor, 255); ofDrawCircle(cp1.x, cp1.y, 2);
+            ofFill(); ofSetColor(handlesColor, 255); ofDrawCircle(cp1.x, cp1.y, 2);
             
             // Draw handle lines
-            ofNoFill(); ofSetColor(bezierColor, 255);
+            ofNoFill(); ofSetColor(handlesColor, 255);
             ofDrawLine(currentPt.x, currentPt.y, cp1.x, cp1.y);
             ofDrawLine(cp1.x, cp1.y, endPt.x, endPt.y);
             
             currentPt = endPt;
             
             // Draw anchor
-            ofFill(); ofSetColor(lineColor); ofDrawCircle(currentPt.x, currentPt.y, 3);
+            ofFill(); ofSetColor(anchorColor); ofDrawCircle(currentPt.x, currentPt.y, 3);
             
             // Draw number
             if (kurboShape::bShowNumbers) {
@@ -146,19 +158,19 @@ void kurboShape::draw(bool connectLast, ofColor lineColor, ofColor bezierColor) 
             glm::vec2 endPt = to_glmVec2(el.p2); // Anchor point
             
             // Draw control points
-            ofFill(); ofSetColor(bezierColor, 255);
+            ofFill(); ofSetColor(handlesColor, 255);
             ofDrawCircle(cp1.x, cp1.y, 2);
             ofDrawCircle(cp2.x, cp2.y, 2);
             
             // Draw handle lines
-            ofNoFill(); ofSetColor(bezierColor, 255);
+            ofNoFill(); ofSetColor(handlesColor, 255);
             ofDrawLine(currentPt.x, currentPt.y, cp1.x, cp1.y);
             ofDrawLine(endPt.x, endPt.y, cp2.x, cp2.y);
             
             currentPt = endPt;
             
             // Draw anchor
-            ofFill(); ofSetColor(lineColor); ofDrawCircle(currentPt.x, currentPt.y, 3);
+            ofFill(); ofSetColor(anchorColor); ofDrawCircle(currentPt.x, currentPt.y, 3);
             
             // Draw number
             if (kurboShape::bShowNumbers) {

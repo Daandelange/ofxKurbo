@@ -1,8 +1,13 @@
 # ofxKurbo
 
-An OpenFrameworks wrapper for [kurbo](https://github.com/linebender/kurbo) providing a set of geometrical functions on cartesian planar 2D paths and shapes.  
+An OpenFrameworks wrapper for [Kurbo](https://github.com/linebender/kurbo) providing a set of geometrical functions on cartesian planar 2D paths (or shapes).  
 Kurbo is a modern, high-performance 2D curve geometry library in Rust, with a strong focus on Bezier paths.  
-Like libKurbo is a continuation of libBezierRs (with some differences), ofxKurbo is a continuation of [ofxBezierRs](https://github.com/Daandelange/ofxBezierRs).
+
+Where other libre geometric algebra libraries tend to "flatten" (sampling & approxitions) data in the process, Kurbo uses modern algorithms that resultg in way cleaner and more accurate results.
+
+## Project history
+
+ofxKurbo is a continuation of [ofxBezierRs](https://github.com/Daandelange/ofxBezierRs) _(with some differences)_. Bezier-rs was used in the excellent [Graphite Editor](https://editor.graphite.rs) and has mainly been replaced by Kurbo. In the migration process, some Bezier-rs algos have moved to Kurbo too and some missing parts have moved to the [Graphite::vector_types](https://github.com/GraphiteEditor/Graphite/tree/master/node-graph/libraries/vector-types). Graphite now also integrates [Linesweeper](https://radicle.network/nodes/iris.radicle.network/rad%3Az2jbcL8tV3Fqqqk1yPyGkDTjgaTfH), providing boolean operations and path cleaning. ofxKurbo glues together various functions from all these libraries to provide some of the bezier algorithms used within Graphite. It also provides some utilities to get cleaner output from it and facilitate usage with OpenFrameworks (or C++) applications.
 
 <!-- **Demo :**  
 ![ofxKurbo Demo](https://raw.githubusercontent.com/Daandelange/ofxBezierRs/main/ofxBezierRs-proof-of-concept.gif)  
@@ -10,21 +15,23 @@ Like libKurbo is a continuation of libBezierRs (with some differences), ofxKurbo
 
 ## Early state
 
-Kurbo provides plenty of functions. Right now, consider this addon as a proof-of-concept for using libKurbo with C++ code.  
+Kurbo & Linesweeper provide plenty of functions. Right now, consider this addon as a proof-of-concept for using Kurbo with C++ code.  
 Smooth Openframeworks integration is yet to be done.
 
 ### Path offsetting details
 
-I made this for its bezier path offsetting capabilities.  
-Other libraries (Livarot, Clipper2) tend to flatten the the offset curve to polygons, then use curve fitting algorithms to obtain bezier data as output.
-Kurbo ports the logics described in [Pomax's excellent research work](https://pomax.github.io/bezierinfo/), which is more modern and generally results in cleaner Bezier data output.
+I made this specially for its bezier path offsetting capabilities.  
+Other libraries (Livarot, Clipper2) tend to flatten the the offset curve to polygons, then eventually use curve fitting algorithms to obtain bezier data as output.
+Kurbo ports the logics described in [Pomax's excellent research work](https://pomax.github.io/bezierinfo/), which is more modern and generally results in both cleaner & more precise Bezier data output.
 
 ## Requirements
 
-Tested on `osx + OF 0.12` and `linux + OF 0.12` in `c++17`.
+Tested on `osx + OF 0.12` and `linux + OF 0.12` in `c++17`.  
+Rust installed for building the library.
 
 ## Geometrical functions
 
+- [x] Segment based vector data _(like SVG and ofPath)_
 - [x] Shape offset
 - [x] Shape outline
 - [x] Shape rotation
@@ -33,12 +40,16 @@ Tested on `osx + OF 0.12` and `linux + OF 0.12` in `c++17`.
 - [x] Shape hit testing
 - [x] Inflections
 - [ ] Find shape self intersections
-- [x] Evaluate a point on the shape (t-value)
+- [x] Evaluate a point on the shape (t-value: linear & euclidean)
 - [x] Normal from t-value
 - [x] Tangent from t-value
 - [x] Curvature from t-value
 - [x] Find closest point on shape (projection)
-- [ ] Boolean path operations.
+- [x] Boolean path operations.
+- [ ] Morphing
+- [ ] Extrusion
+
+_Checked ones are implemented._
 
 ## Shapes
 
@@ -57,6 +68,8 @@ ofxKurbo relies on 3 essential components :
 
 ## Usage
 
+See the examples for more advanced usage demos.
+
 ```cpp
 #include "ofxKurbo.h"
 
@@ -64,34 +77,10 @@ int main() {
     // Create a new path
     kurboBezPath* path = kurbo_path_create(nullptr);
     
-    // Append some curve segments
-    kurbo_path_append_move_to(path, to_kurboPos(glm::vec2(100, 100)));
-    kurbo_path_append_curve_to(path, to_kurboPos(glm::vec2(100, 200)), to_kurboPos(glm::vec2(200, 200)), to_kurboPos(glm::vec2(200, 100)));
-    kurbo_path_append_close(path);
-    
-    // Stroke the path (create an outline)
-    kurboBezPath* stroked = kurbo_path_stroke(path, 10.0, kurboJoinType::Round, 4.0, kurboCapType::Round, kurboCapType::Round);
-    
-    // Retrieve resulting path elements
-    kurboPathRaw rawData = kurbo_path_return_handle_data(stroked);
-    
-    // Use result in OpenFrameworks
-    ofBeginShape();
-    for (size_t i = 0; i < rawData.len; i++) {
-        const KurboPathEl& el = rawData.data[i];
-        if (el.tag == KurboPathElType::MoveTo) {
-            ofVertex(to_glmVec2(el.p0));
-        } else if (el.tag == KurboPathElType::CurveTo) {
-            ofBezierVertex(to_glmVec2(el.p0), to_glmVec2(el.p1), to_glmVec2(el.p2));
-        } else if (el.tag == KurboPathElType::ClosePath) {
-            ofEndShape(true);
-        }
-    }
-    ofEndShape(false);
+    // Todo !
     
     // Destroy path handles when done
     kurbo_path_destroy(path);
-    kurbo_path_destroy(stroked);
 
     return 0;
 }
@@ -102,6 +91,7 @@ int main() {
 There's a set of ImGui helpers available, to opt-in, define `OFXBEZRS_DEFINE_IMGUI_HELPERS`. It will automatically be enabled with the standard `ofxAddons_ENABLE_IMGUI`.
 
 ## Development
+
 To build a new library binary for your platform, make sure that you have [Rust](https://www.rust-lang.org/tools/install) installed.
 - `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 
@@ -122,6 +112,6 @@ You can run the above instructions automatically :
 
 ## License
 
-The [kurbo crate](https://crates.io/crates/kurbo) is licensed [MIT](https://github.com/linebender/kurbo/blob/main/LICENSE-MIT) or [Apache-2.0](https://github.com/linebender/kurbo/blob/main/LICENSE-APACHE). The bezier-rs crate is made by the [LineBender](https://linebender.org) organisation and offsetting capabilities were contributed by the team behind [Graphite.rs](https://editor.graphite.rs).
-`ofxKurbo` and `bezier-rs-ffi` are [MIT](https://github.com/Daandelange/ofxKurbo/blob/main/License.md) and made by [Daan de Lange](https://daandelange.com/).
+The [kurbo crate](https://crates.io/crates/kurbo) is licensed [MIT](https://github.com/linebender/kurbo/blob/main/LICENSE-MIT) or [Apache-2.0](https://github.com/linebender/kurbo/blob/main/LICENSE-APACHE). The bezier-rs crate is made by the [LineBender](https://linebender.org) organisation and offsetting capabilities were contributed by the team behind [Graphite.rs](https://editor.graphite.rs) [MIT]() or [Apache-2.0(). [Linesweeper](https://radicle.network/nodes/iris.radicle.network/rad%3Az2jbcL8tV3Fqqqk1yPyGkDTjgaTfH) is [MIT](https://radicle.network/nodes/iris.radicle.network/rad:z2jbcL8tV3Fqqqk1yPyGkDTjgaTfH/tree/LICENSE-MIT) or [Apache-2.0](https://radicle.network/nodes/iris.radicle.network/rad:z2jbcL8tV3Fqqqk1yPyGkDTjgaTfH/tree/LICENSE-APACHE).
+`ofxKurbo` and `kurbo-ffi` are [MIT](https://github.com/Daandelange/ofxKurbo/blob/main/License.md) and made by [Daan de Lange](https://daandelange.com/).
 
